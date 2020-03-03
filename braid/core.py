@@ -1,9 +1,42 @@
 #!/usr/bin/env python3
 
+from collections import deque
 import sys, time, threading, queue, __main__, atexit
-from .midi import midi_in
+#from .midi import midi_in
+
+from rtmidi.midiconstants import TIMING_CLOCK, SONG_CONTINUE, SONG_START, SONG_STOP
+from rtmidi.midiutil import open_midiinput
 
 LIVECODING = not hasattr(__main__, "__file__")
+
+class MIDIClockReceiver:
+    def __init__(self, bpm=None):
+        self.bpm = bpm if bpm is not None else 120.0
+        self._samples = deque()
+        self._last_clock = None
+
+    def __call__(self, event, data=None):
+        msg, _ = event
+
+        if msg[0] == TIMING_CLOCK:
+            driver.run()
+            now = time.time()
+            if self._last_clock is not None:
+                self._samples.append(now - self._last_clock)
+
+            self._last_clock = now
+
+            if len(self._samples) > 24:
+                self._samples.popleft()
+
+            if len(self._samples) >= 2:
+                self.bpm = 2.5 / (sum(self._samples) / len(self._samples))
+                tempo(self.bpm)
+
+        elif msg[0] in (SONG_CONTINUE, SONG_START):
+            play()
+        elif msg[0] == SONG_STOP:
+            stop()
 
 class Driver(threading.Thread):
 
@@ -19,9 +52,14 @@ class Driver(threading.Thread):
         self.running = False
         self._cycles = 0.0
         self._triggers = []
+        self.start_t = time.time()
+        self.midi_in, _ = open_midiinput(10)
+        self.midi_in.set_callback(MIDIClockReceiver(120))
+        self.midi_in.ignore_types(timing=False)
 
     def start(self):
         super(Driver, self).start()
+        self.start_t = time.time()
         print("-------------> O")
         if not LIVECODING:
             try:
@@ -31,36 +69,30 @@ class Driver(threading.Thread):
                 driver.stop()
 
     def run(self):
-        self.start_t = time.time()
-        while True:
-            self.t = time.time() - self.start_t
-            if self.running:                                
-                try:
-                    if not self.running:
-                        break
-                    midi_in.perform_callbacks()
-                    delta_t = self.t - self.previous_t
-                    self._cycles += delta_t * self.rate
-                    if int(self._cycles) != self.previous_cycles:
-                        self.update_triggers()
-                        self.previous_cycles = int(self._cycles)
-                    for thread in self.threads:
-                        c = time.time()
-                        try:
-                            thread.update(delta_t)
-                        except Exception as e:
-                            print("\n[Error: \"%s\"]" % e)
-                            thread.stop()
-                            raise e
-                        rc = int((time.time() - c) * 1000)
-                        if rc > 1:
-                            print("[Warning: update took %dms]\n>>> " % rc, end='')
-                except KeyboardInterrupt:
-                    self.stop()
-            elif not LIVECODING:
-                break
-            self.previous_t = self.t     
-            time.sleep(self.grain)                
+        self.t = time.time() - self.start_t
+        if self.running:
+            try:
+                #midi_in.perform_callbacks()
+                delta_t = self.t - self.previous_t
+                self._cycles += delta_t * self.rate
+                if int(self._cycles) != self.previous_cycles:
+                    self.update_triggers()
+                    self.previous_cycles = int(self._cycles)
+                for thread in self.threads:
+                    c = time.time()
+                    try:
+                        thread.update(delta_t)
+                    except Exception as e:
+                        print("\n[Error: \"%s\"]" % e)
+                        thread.stop()
+                        raise e
+                    rc = int((time.time() - c) * 1000)
+                    if rc > 1:
+                        print("[Warning: update took %dms]\n>>> " % rc, end='')
+            except KeyboardInterrupt:
+                self.stop()
+        self.previous_t = self.t
+        #time.sleep(self.grain)
 
     def trigger(self, f=None, cycles=0, repeat=0):
         if f is None and repeat is False:
@@ -152,5 +184,5 @@ atexit.register(exit_handler)
 driver = Driver()
 trigger = driver.trigger
 
-tempo(115)
+tempo(120)
 

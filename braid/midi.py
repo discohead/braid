@@ -4,7 +4,7 @@ from collections import deque
 import sys, time, threading, atexit, queue, rtmidi
 from rtmidi.midiconstants import NOTE_ON, NOTE_OFF, CONTROLLER_CHANGE, TIMING_CLOCK, SONG_START, SONG_CONTINUE, SONG_STOP
 from . import num_args
-from .core import driver, tempo, play, stop, clear, pause
+from .core import driver, tempo
 
 log_midi = False
 
@@ -77,13 +77,15 @@ class MidiOut(threading.Thread):
 
 class MidiIn(threading.Thread):
 
-    def __init__(self, interface=0):
+    def __init__(self, sync=False, interface=0):
         threading.Thread.__init__(self)
         self.daemon = True
         self._interface = interface
         self.queue = queue.Queue()
         self.midi = rtmidi.MidiIn()
-        self.midi.ignore_types(timing=False)
+        self._sync = sync
+        if sync:
+            self.midi.ignore_types(timing=False)  #: TODO toggle this based on whether or not midi sync enabled
         self.callbacks = {}
         self.threads = []
         self._samples = deque()
@@ -116,25 +118,31 @@ class MidiIn(threading.Thread):
     def interface(self, interface):
         self.__init__(interface=interface)
 
+    @property
+    def sync(self):
+        return self._sync
+
+    @sync.setter
+    def sync(self, enable):
+        self.midi.ignore_types(timing=not enable)
+        self._sync = enable
+        driver._midi_sync = enable
+
     def run(self):
         def receive_message(event, data=driver):
             msg, _ = event
             if msg[0] == TIMING_CLOCK:
-                data.run()
                 self.perform_callbacks()
+                data.tick()
                 now = time.time()
                 if self._last_clock is not None:
                     self._samples.append(now - self._last_clock)
-
                 self._last_clock = now
-
                 if len(self._samples) > 24:
                     self._samples.popleft()
-
                 if len(self._samples) >= 2:
                     self.bpm = 2.5 / (sum(self._samples) / len(self._samples))
                     tempo(self.bpm)
-
             elif msg[0] in (SONG_START, SONG_CONTINUE):
                 data.running = True
                 for thread in data.threads:
@@ -183,6 +191,6 @@ class MidiIn(threading.Thread):
 
 
 midi_out = MidiOut(int(sys.argv[1]) if len(sys.argv) > 1 else 0)
-midi_in = MidiIn(int(sys.argv[2]) if len(sys.argv) > 2 else 0)
+midi_in = MidiIn(interface=(sys.argv[2]) if len(sys.argv) > 2 else 0)
 time.sleep(0.5)
 print("MIDI ready")

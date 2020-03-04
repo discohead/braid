@@ -20,7 +20,8 @@ class Driver(threading.Thread):
         self.running = False
         self._cycles = 0.0
         self._triggers = []
-        self.start_t = time.time()
+        self.start_t = 0.0
+        self._midi_sync = False
 
     def start(self):
         super(Driver, self).start()
@@ -33,30 +34,36 @@ class Driver(threading.Thread):
             except KeyboardInterrupt:
                 driver.stop()
 
-    def run(self):
-        self.t = time.time() - self.start_t
+    def tick(self):
         if self.running:
+            self.t = time.time() - self.start_t
+            delta_t = self.t - self.previous_t
+            self._cycles += delta_t * self.rate
+            if int(self._cycles) != self.previous_cycles:
+                self.update_triggers()
+                self.previous_cycles = int(self._cycles)
+            for thread in self.threads:
+                c = time.time()
+                try:
+                    thread.update(delta_t)
+                except Exception as e:
+                    print("\n[Error: \"%s\"]" % e)
+                    thread.stop()
+                    raise e
+                rc = int((time.time() - c) * 1000)
+                if rc > 1:
+                    print("[Warning: update took %dms]\n>>> " % rc, end='')
+            self.previous_t = self.t
+
+    def run(self):
+        while True:
             try:
-                delta_t = self.t - self.previous_t
-                self._cycles += delta_t * self.rate
-                if int(self._cycles) != self.previous_cycles:
-                    self.update_triggers()
-                    self.previous_cycles = int(self._cycles)
-                for thread in self.threads:
-                    c = time.time()
-                    try:
-                        thread.update(delta_t)
-                    except Exception as e:
-                        print("\n[Error: \"%s\"]" % e)
-                        thread.stop()
-                        raise e
-                    rc = int((time.time() - c) * 1000)
-                    if rc > 1:
-                        print("[Warning: update took %dms]\n>>> " % rc, end='')
+                self.tick()
             except KeyboardInterrupt:
                 self.stop()
-        self.previous_t = self.t
-        #time.sleep(self.grain)
+            if not self.running and not LIVECODING:
+                break
+            time.sleep(self.grain)
 
     def trigger(self, f=None, cycles=0, repeat=0):
         if f is None and repeat is False:

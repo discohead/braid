@@ -70,6 +70,7 @@ class Thread(object):
         self._channel = channel
         self._running = False
         self._cycles = 0.0
+        self._base_phase = 0.0
         self._last_edge = 0
         self._index = -1
         self._transpose_index = -1
@@ -105,10 +106,10 @@ class Thread(object):
             pc = self._rate.get_phase()
             if pc is not None:
                 self.__phase_correction.target_value = pc
-        p = (self._cycles + self.phase + self._phase_correction) % 1.0
+        self._base_phase = (self._cycles + self.phase + self._phase_correction) % 1.0
         if self.micro is not None:
-            p = self.micro(p)
-        i = int(p * len(self._steps))
+            self._base_phase = self.micro(self._base_phase)
+        i = int(self._base_phase * len(self._steps))
         if i != self._index or (len(self._steps) == 1 and int(self._cycles) != self._last_edge): # contingency for whole notes
             if self._start_lock:
                 self._index = self._transpose_index = i

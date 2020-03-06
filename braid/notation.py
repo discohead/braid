@@ -1,6 +1,7 @@
 from random import randint, choice, random, shuffle, uniform
 from collections import deque
 from bisect import bisect_left
+from .signal import amp_bias, calc_pos
 
 class Scale(list):
 
@@ -287,3 +288,14 @@ def v(note, v_scale=None):
     else:
         v_scale = uniform(0.17, 0.999)
     return int(note) + v_scale
+
+def s(signal, a=1, r=1, p=0, b=0, v=None):
+    # Use signals to dynamically generate note pitches and velocities with base phase derived from the thread
+    def f(t):
+        pos = calc_pos(t._base_phase, r, p)
+        n = signal(pos)
+        if v is not None:
+            v_scale = v(pos) if callable(v) else v
+            n = v(n, v_scale)
+        return int(amp_bias(n, a, b, pos))
+    return f

@@ -289,13 +289,13 @@ def v(note, v_scale=None):
         v_scale = uniform(0.17, 0.999)
     return int(note) + v_scale
 
-def s(signal, a=1, r=1, p=0, b=0, v=None):
+def s(signal, a=1, r=1, p=0, b=0, v_scale=None):
     # Use signals to dynamically generate note pitches and velocities with base phase derived from the thread
     def f(t):
         pos = calc_pos(t._base_phase, r, p)
         n = signal(pos)
-        if v is not None:
-            v_scale = v(pos) if callable(v) else v
-            n = v(n, v_scale)
-        return int(amp_bias(n, a, b, pos))
+        if v_scale is not None:
+            vs = v_scale(pos) if callable(v_scale) else v_scale
+            n = v(n, v_scale=vs)
+        return amp_bias(n, a, b, pos)
     return f
